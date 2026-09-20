@@ -1,0 +1,32 @@
+name: Test
+
+on:
+  push:
+    branches: [develop, release, main]
+  pull_request:
+    branches: [develop]
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    env:
+      # Tests build their own in-memory SQLite engines (see tests/conftest.py)
+      # and never touch these values for real — they only satisfy the
+      # fail-fast checks in app/db/database.py and app/core/config.py at
+      # import time.
+      DATABASE_URL: "sqlite://"
+      TVM_JWKS_URL: "http://tvm.invalid/.well-known/jwks.json"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run tests
+        run: uv run pytest tests/ -v

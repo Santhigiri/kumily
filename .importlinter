@@ -1,0 +1,20 @@
+# import-linter contract.
+#
+# Run locally:  uv run lint-imports
+# Enforced in CI by .github/workflows/lint.yml on every push / PR to develop.
+
+[importlinter]
+root_package = app
+
+[importlinter:contract:layer-boundaries]
+name = db/ and core/ must not import api/ or features/
+type = forbidden
+source_modules =
+    app.db
+    app.core
+forbidden_modules =
+    app.api
+    app.features
+# db/ and core/ are the layers every feature depends on, never the reverse —
+# a feature's router/service may import db/ or core/, but db/ and core/ must
+# stay ignorant of any specific feature or the HTTP layer.

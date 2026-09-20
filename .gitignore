@@ -1,0 +1,10 @@
+**/__pycache__/
+.venv/
+**/.DS_Store
+.env
+.env*
+!.env.example
+.pytest_cache/
+.import_linter_cache/
+*.pem
+uv.lock.bak

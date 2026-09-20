@@ -1,0 +1,28 @@
+name: Lint
+
+on:
+  push:
+    branches: [develop, release, main]
+  pull_request:
+    branches: [develop]
+  workflow_dispatch:
+
+jobs:
+  import-linter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      # import-linter / grimp do static analysis of first-party code only — no
+      # runtime deps (fastapi, sqlmodel, …) are needed to build the graph, but
+      # `uv sync` is still the fastest way to get a lockfile-pinned import-linter.
+      - name: Install dependencies
+        run: uv sync --only-group dev --no-install-project
+
+      - name: Check import contracts
+        run: uv run lint-imports

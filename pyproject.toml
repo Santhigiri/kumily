@@ -1,0 +1,26 @@
+[project]
+name = "kumily"
+version = "0.1.0"
+description = "Content delivery API for Santhigiri Ashram (guruvani and future content features)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.52.4",
+    "sqlmodel==0.0.42",
+    "psycopg2-binary==2.9.12",
+    "python-dotenv==1.2.3",
+    "python-jose[cryptography]==3.5.0",
+    "pydantic-settings==2.15.0",
+    "requests==2.34.2",
+    "alembic==1.20.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "httpx==0.28.1",
+    "import-linter==2.14",
+]
+
+[tool.pyright]
+include = ["app", "tests"]
