@@ -1,0 +1,143 @@
+name: Build, Push, and Deploy
+on:
+  push:
+    branches:
+      - develop
+      - release
+      - main
+  workflow_dispatch:
+env:
+  IMAGE_NAME: kumily
+  GCP_PROJECT: santhigiri-496211
+  GCP_REGION: asia-southeast1
+  AR_REPO: santhigiri
+jobs:
+  build-push-deploy:
+    runs-on: [self-hosted, proxmox]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # --- Tag generation ---
+      - name: Generate version tag
+        id: version
+        run: |
+          DATE=$(date -u +%Y.%m.%d)
+          PUSH_NUM=$(git log --oneline \
+            --since="${DATE} 00:00:00" --until="${DATE} 23:59:59" \
+            "${{ github.sha }}" | wc -l | tr -d ' ')
+
+          if [ "${{ github.ref }}" = "refs/heads/develop" ]; then
+            TAG="dev-${DATE}.${PUSH_NUM}"
+            SERVICE="kumily-dev"
+            ENV="dev"
+          elif [ "${{ github.ref }}" = "refs/heads/release" ]; then
+            TAG="staging-${DATE}.${PUSH_NUM}"
+            SERVICE="kumily-staging"
+            ENV="staging"
+          else
+            TAG="prod-${DATE}.${PUSH_NUM}"
+            SERVICE="kumily-prod"
+            ENV="prod"
+          fi
+
+          echo "TAG=${TAG}" >> $GITHUB_OUTPUT
+          echo "SERVICE=${SERVICE}" >> $GITHUB_OUTPUT
+          echo "ENV=${ENV}" >> $GITHUB_OUTPUT
+          echo "Generated tag: ${TAG}, service: ${SERVICE}, env: ${ENV}"
+
+      # --- Database migrations ---
+      # Runs once per deploy here, not once per container cold start -- every
+      # instance just starts the app (see Dockerfile).
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Install migration dependencies
+        run: uv sync --locked --no-dev
+      - name: Select database URL
+        id: db
+        env:
+          DATABASE_URL_DEVELOP: ${{ secrets.DATABASE_URL_DEVELOP }}
+          DATABASE_URL_STAGING: ${{ secrets.DATABASE_URL_STAGING }}
+          DATABASE_URL_PRODUCTION: ${{ secrets.DATABASE_URL_PRODUCTION }}
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/develop" ]; then
+            DATABASE_URL="${DATABASE_URL_DEVELOP}"
+          elif [ "${{ github.ref }}" = "refs/heads/release" ]; then
+            DATABASE_URL="${DATABASE_URL_STAGING}"
+          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            DATABASE_URL="${DATABASE_URL_PRODUCTION}"
+          else
+            echo "::error::No DATABASE_URL secret mapping for ref ${{ github.ref }}. Run this workflow from develop, release, or main."
+            exit 1
+          fi
+
+          if [ -z "${DATABASE_URL}" ]; then
+            echo "::error::No DATABASE_URL secret configured for ref ${{ github.ref }}"
+            exit 1
+          fi
+
+          echo "::add-mask::${DATABASE_URL}"
+          echo "DATABASE_URL=${DATABASE_URL}" >> "$GITHUB_OUTPUT"
+      - name: Run database migrations
+        env:
+          DATABASE_URL: ${{ steps.db.outputs.DATABASE_URL }}
+        run: uv run alembic upgrade head
+
+      # --- GCP auth ---
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
+
+      # --- Build ---
+      - name: Build Docker image
+        env:
+          DOCKER_BUILDKIT: "0"
+        run: |
+          AR_IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}-${{ steps.version.outputs.ENV }}"
+          docker build -t "${AR_IMAGE}:${{ steps.version.outputs.TAG }}" -f Dockerfile .
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            docker tag "${AR_IMAGE}:${{ steps.version.outputs.TAG }}" "${AR_IMAGE}:latest"
+          fi
+
+      # --- Push to Artifact Registry ---
+      - name: Push image to Artifact Registry
+        run: |
+          AR_IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}-${{ steps.version.outputs.ENV }}"
+          docker push "${AR_IMAGE}:${{ steps.version.outputs.TAG }}"
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            docker push "${AR_IMAGE}:latest"
+          fi
+
+      # --- (Optional) Also push to Docker Hub ---
+      - name: Login to Docker Hub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+      - name: Push images to Docker Hub
+        run: |
+          AR_IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}-${{ steps.version.outputs.ENV }}"
+          docker tag "${AR_IMAGE}:${{ steps.version.outputs.TAG }}" "${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.TAG }}"
+          docker push "${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.TAG }}"
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            docker tag "${AR_IMAGE}:latest" "${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest"
+            docker push "${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest"
+          fi
+      - name: Logout from Docker Hub
+        if: always()
+        run: docker logout
+
+      # --- Deploy to Cloud Run ---
+      - name: Deploy to Cloud Run
+        run: |
+          AR_IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}-${{ steps.version.outputs.ENV }}"
+          gcloud run deploy ${{ steps.version.outputs.SERVICE }} \
+            --image="${AR_IMAGE}:${{ steps.version.outputs.TAG }}" \
+            --region=${{ env.GCP_REGION }} \
+            --project=${{ env.GCP_PROJECT }}
