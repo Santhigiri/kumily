@@ -15,12 +15,21 @@ Reads are public (the anonymous principal is allowed, any supplied token is
 still validated), writes require the ``admin`` role. Handlers stay thin:
 parse the body, delegate to ``GuruvaniService``, and translate its domain
 errors into HTTP status codes.
+
+The list endpoint is ETag-validated via ``features.etag.service.etag_json_response``
+(the same fresh-computed-every-request approach ``features/settings/router.py``
+uses): the ETag is hashed from the response on every request rather than
+persisted, so a matching ``If-None-Match`` gets a ``304`` and a write is
+reflected immediately with no separate invalidation step. Cheap enough for a
+list this size — no need for the persisted-etag path the larger reference
+datasets use.
 """
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from app.api.deps import GuruvaniServiceDep, require_role
+from app.features.etag.service import etag_json_response
 from app.features.guruvani.schemas import GuruvaniCreate, GuruvaniDetail, GuruvaniUpdate
 from app.features.guruvani.service import GuruvaniNotFound
 from app.utils.roles import Role
@@ -33,8 +42,8 @@ router = APIRouter(prefix="/guruvani", tags=["guruvani"])
     response_model=List[GuruvaniDetail],
     dependencies=[Depends(require_role(Role.ANONYMOUS))],
 )
-def list_guruvani(service: GuruvaniServiceDep) -> List[GuruvaniDetail]:
-    return service.list_all()
+def list_guruvani(request: Request, service: GuruvaniServiceDep) -> Response:
+    return etag_json_response(request, service.list_all())
 
 
 @router.get(
