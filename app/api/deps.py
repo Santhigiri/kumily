@@ -35,6 +35,9 @@ from app.db.database import get_session
 from app.db.unit_of_work import SqlUnitOfWork
 from app.features.etag.ports import EtagRepositoryPort
 from app.features.etag.repository import EtagRepository
+from app.features.guru_gita.ports import GuruGitaRepositoryPort
+from app.features.guru_gita.repository import GuruGitaRepository
+from app.features.guru_gita.service import GuruGitaService
 from app.features.guruvani.ports import GuruvaniRepositoryPort
 from app.features.guruvani.repository import GuruvaniRepository
 from app.features.guruvani.service import GuruvaniService
@@ -75,6 +78,25 @@ def get_guruvani_service(
 
 
 GuruvaniServiceDep = Annotated[GuruvaniService, Depends(get_guruvani_service)]
+
+
+def get_guru_gita_repository(session: SessionDep) -> GuruGitaRepositoryPort:
+    return GuruGitaRepository(session)
+
+
+GuruGitaRepositoryDep = Annotated[
+    GuruGitaRepositoryPort, Depends(get_guru_gita_repository)
+]
+
+
+def get_guru_gita_service(
+    guru_gita_repository: GuruGitaRepositoryDep,
+    unit_of_work: UnitOfWorkDep,
+) -> GuruGitaService:
+    return GuruGitaService(guru_gita_repository, unit_of_work)
+
+
+GuruGitaServiceDep = Annotated[GuruGitaService, Depends(get_guru_gita_service)]
 
 
 # ── Principal ─────────────────────────────────────────────────────────────────
