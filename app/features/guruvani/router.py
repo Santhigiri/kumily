@@ -1,11 +1,13 @@
 """CRUD endpoints for Guruvani quotes.
 
-* ``GET    /api/v1/guruvani``          — list every quote, ordered by sort_order  (public)
-* ``GET    /api/v1/guruvani/random``   — fetch one quote at random                (public)
-* ``GET    /api/v1/guruvani/{id}``     — fetch one quote                          (public)
-* ``POST   /api/v1/guruvani``          — create a quote                          (admin)
-* ``PUT    /api/v1/guruvani/{id}``     — partial-update a quote                   (admin)
-* ``DELETE /api/v1/guruvani/{id}``     — delete a quote                           (admin)
+* ``GET    /api/v1/guruvani``                                     — list every quote, ordered by sort_order, with every available translation (public)
+* ``GET    /api/v1/guruvani/random``                               — fetch one quote at random, with every available translation (public)
+* ``GET    /api/v1/guruvani/{id}``                                 — fetch one quote with all its translations (public)
+* ``POST   /api/v1/guruvani``                                      — create a quote's parent row (no translations yet) (admin)
+* ``PUT    /api/v1/guruvani/{id}/translations/{language_code}``    — create or update one language's text for a quote (admin)
+* ``DELETE /api/v1/guruvani/{id}/translations/{language_code}``    — remove one language's text for a quote (admin)
+* ``PUT    /api/v1/guruvani/{id}/sort-order``                      — update a quote's display order (admin)
+* ``DELETE /api/v1/guruvani/{id}``                                 — delete a quote entirely (every language) (admin)
 
 ``/random`` is registered ahead of ``/{guruvani_id}`` so FastAPI's path
 matching (first-match-wins, in declaration order) doesn't swallow the literal
@@ -30,8 +32,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from app.api.deps import GuruvaniServiceDep, require_role
 from app.features.etag.service import etag_json_response
-from app.features.guruvani.schemas import GuruvaniCreate, GuruvaniDetail, GuruvaniUpdate
+from app.features.guruvani.schemas import (
+    GuruvaniCreate,
+    GuruvaniDetail,
+    GuruvaniSortOrderUpdate,
+    GuruvaniTranslationUpsert,
+)
 from app.features.guruvani.service import GuruvaniNotFound
+from app.utils.languages import LanguageCode
 from app.utils.roles import Role
 
 router = APIRouter(prefix="/guruvani", tags=["guruvani"])
@@ -83,19 +91,56 @@ def get_guruvani(guruvani_id: int, service: GuruvaniServiceDep) -> GuruvaniDetai
 def create_guruvani(
     payload: GuruvaniCreate, service: GuruvaniServiceDep
 ) -> GuruvaniDetail:
-    return service.create(payload)
+    return service.create(payload.sort_order)
 
 
 @router.put(
-    "/{guruvani_id}",
+    "/{guruvani_id}/translations/{language_code}",
     response_model=GuruvaniDetail,
     dependencies=[Depends(require_role(Role.ADMIN))],
 )
-def update_guruvani(
-    guruvani_id: int, payload: GuruvaniUpdate, service: GuruvaniServiceDep
+def upsert_guruvani_translation(
+    guruvani_id: int,
+    language_code: LanguageCode,
+    payload: GuruvaniTranslationUpsert,
+    service: GuruvaniServiceDep,
 ) -> GuruvaniDetail:
     try:
-        return service.update(guruvani_id, payload)
+        return service.upsert_translation(guruvani_id, language_code.value, payload.text)
+    except GuruvaniNotFound:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail=f"Guruvani '{guruvani_id}' not found."
+        )
+
+
+@router.delete(
+    "/{guruvani_id}/translations/{language_code}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_role(Role.ADMIN))],
+)
+def delete_guruvani_translation(
+    guruvani_id: int, language_code: LanguageCode, service: GuruvaniServiceDep
+) -> Response:
+    try:
+        service.delete_translation(guruvani_id, language_code.value)
+    except GuruvaniNotFound:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail=f"Translation '{language_code.value}' for Guruvani '{guruvani_id}' not found.",
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put(
+    "/{guruvani_id}/sort-order",
+    response_model=GuruvaniDetail,
+    dependencies=[Depends(require_role(Role.ADMIN))],
+)
+def update_guruvani_sort_order(
+    guruvani_id: int, payload: GuruvaniSortOrderUpdate, service: GuruvaniServiceDep
+) -> GuruvaniDetail:
+    try:
+        return service.update_sort_order(guruvani_id, payload.sort_order)
     except GuruvaniNotFound:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, detail=f"Guruvani '{guruvani_id}' not found."

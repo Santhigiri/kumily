@@ -9,11 +9,13 @@ from typing import List
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.utils.languages import LanguageCode
+
 
 class GuruGitaTranslationSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    language_code: str = Field(min_length=1)
+    language_code: LanguageCode
     text: str = Field(min_length=1)
 
 
