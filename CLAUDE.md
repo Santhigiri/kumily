@@ -156,7 +156,7 @@ Any feature holding user/Guru-facing translatable text (Guruvani, Guru Gita, and
 
 - **`language_code` is validated once, at the HTTP boundary.** `utils/languages.py::LanguageCode` is the shared allow-list (`en`, `ml`, ...); every feature's `schemas.py` types its language-bearing field/path-param as `LanguageCode` so an unsupported code is rejected with `422` before it reaches the service. `ports.py`, the repository, and the SQLModel column all keep `language_code` as a plain `str` — don't duplicate the enum below the schema layer, and don't invent a second allow-list per feature.
 - **A feature's `ports.py` DTO exposes a `translations: List[<Feature>Translation]` field** on its "get" DTO (see `GuruvaniGet`/`GuruGitaVerseGet`) rather than fixed per-language fields — the repository groups a parent's translation rows into this list (`_rows_to_*_get` in `repository.py`).
-- **Router shape**: list/get endpoints return **every** translation for the row — there is no `?lang=` filter; the caller renders whichever language it wants client-side, which keeps a single ETag valid for every language at once. Mutations are per-translation: `PUT .../translations/{language_code}` upserts one language's text, `DELETE .../translations/{language_code}` removes just that language — never a single payload that carries every language's text at once.
+- **Router shape**: list/get endpoints return **every** translation for the row by default; passing an optional `?language_code=` query param (typed `LanguageCode`, see below) narrows the response to just that one language's translation, filtered in `service.py`, never in the repository. Omitting the param is the common case and keeps a single ETag-cacheable payload valid for every language at once — Guruvani's `etag_json_response` still works here because the ETag is hashed fresh from the actual (possibly filtered) response body on every request, not persisted per language. Mutations stay per-translation regardless: `PUT .../translations/{language_code}` upserts one language's text, `DELETE .../translations/{language_code}` removes just that language — never a single payload that carries every language's text at once.
 - If the feature's rows need an ordering or identity that isn't naturally derivable from the translated content itself (e.g. Guruvani's `sort_order`), keep a real parent table (`guruvani`) separate from the translation table (`guruvani_translation`), with the translation table's FK pointing at the parent. A feature whose natural key already comes from outside translation (e.g. Guru Gita's `verse_number`) doesn't need a separate parent table at all — the translation rows alone are the table.
 
 ### Adding a new content feature
@@ -221,9 +221,9 @@ The container exposes port 8001 and runs `uvicorn app.main:app --host 0.0.0.0 --
 
 Guruvani quotes (read public; writes require the `admin` role). Every quote's text lives in translation rows — see "Multi-language content" above:
 
-- `GET    /api/v1/guruvani` — list every quote, ordered by `sort_order`, with every available translation (public)
-- `GET    /api/v1/guruvani/random` — fetch one quote at random, with every available translation (public)
-- `GET    /api/v1/guruvani/{id}` — fetch one quote with all its translations (public)
+- `GET    /api/v1/guruvani` — list every quote, ordered by `sort_order`, with every available translation, or only the one named by `?language_code=` (public)
+- `GET    /api/v1/guruvani/random` — fetch one quote at random, with every available translation, or only the one named by `?language_code=` (public)
+- `GET    /api/v1/guruvani/{id}` — fetch one quote with all its translations, or only the one named by `?language_code=` (public)
 - `POST   /api/v1/guruvani` — create a quote's parent row (no translations yet) (admin)
 - `PUT    /api/v1/guruvani/{id}/translations/{language_code}` — create or update one language's text (admin)
 - `DELETE /api/v1/guruvani/{id}/translations/{language_code}` — remove one language's text (admin)
