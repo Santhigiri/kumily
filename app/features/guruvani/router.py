@@ -1,8 +1,8 @@
 """CRUD endpoints for Guruvani quotes.
 
-* ``GET    /api/v1/guruvani``                                     — list every quote, ordered by sort_order, with every available translation (public)
-* ``GET    /api/v1/guruvani/random``                               — fetch one quote at random, with every available translation (public)
-* ``GET    /api/v1/guruvani/{id}``                                 — fetch one quote with all its translations (public)
+* ``GET    /api/v1/guruvani``                                     — list every quote, ordered by sort_order; every translation, or only ``?language_code=`` when given (public)
+* ``GET    /api/v1/guruvani/random``                               — fetch one quote at random; every translation, or only ``?language_code=`` when given (public)
+* ``GET    /api/v1/guruvani/{id}``                                 — fetch one quote; every translation, or only ``?language_code=`` when given (public)
 * ``POST   /api/v1/guruvani``                                      — create a quote's parent row (no translations yet) (admin)
 * ``PUT    /api/v1/guruvani/{id}/translations/{language_code}``    — create or update one language's text for a quote (admin)
 * ``DELETE /api/v1/guruvani/{id}/translations/{language_code}``    — remove one language's text for a quote (admin)
@@ -26,9 +26,9 @@ reflected immediately with no separate invalidation step. Cheap enough for a
 list this size — no need for the persisted-etag path the larger reference
 datasets use.
 """
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
 from app.api.deps import GuruvaniServiceDep, require_role
 from app.features.etag.service import etag_json_response
@@ -50,8 +50,13 @@ router = APIRouter(prefix="/guruvani", tags=["guruvani"])
     response_model=List[GuruvaniDetail],
     dependencies=[Depends(require_role(Role.ANONYMOUS))],
 )
-def list_guruvani(request: Request, service: GuruvaniServiceDep) -> Response:
-    return etag_json_response(request, service.list_all())
+def list_guruvani(
+    request: Request,
+    service: GuruvaniServiceDep,
+    language_code: Optional[LanguageCode] = Query(default=None),
+) -> Response:
+    value = language_code.value if language_code is not None else None
+    return etag_json_response(request, service.list_all(value))
 
 
 @router.get(
@@ -59,9 +64,13 @@ def list_guruvani(request: Request, service: GuruvaniServiceDep) -> Response:
     response_model=GuruvaniDetail,
     dependencies=[Depends(require_role(Role.ANONYMOUS))],
 )
-def get_random_guruvani(service: GuruvaniServiceDep) -> GuruvaniDetail:
+def get_random_guruvani(
+    service: GuruvaniServiceDep,
+    language_code: Optional[LanguageCode] = Query(default=None),
+) -> GuruvaniDetail:
     try:
-        return service.get_random()
+        value = language_code.value if language_code is not None else None
+        return service.get_random(value)
     except GuruvaniNotFound:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, detail="No Guruvani entries exist."
@@ -73,9 +82,14 @@ def get_random_guruvani(service: GuruvaniServiceDep) -> GuruvaniDetail:
     response_model=GuruvaniDetail,
     dependencies=[Depends(require_role(Role.ANONYMOUS))],
 )
-def get_guruvani(guruvani_id: int, service: GuruvaniServiceDep) -> GuruvaniDetail:
+def get_guruvani(
+    guruvani_id: int,
+    service: GuruvaniServiceDep,
+    language_code: Optional[LanguageCode] = Query(default=None),
+) -> GuruvaniDetail:
     try:
-        return service.get(guruvani_id)
+        value = language_code.value if language_code is not None else None
+        return service.get(guruvani_id, value)
     except GuruvaniNotFound:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, detail=f"Guruvani '{guruvani_id}' not found."

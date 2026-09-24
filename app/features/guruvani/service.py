@@ -25,31 +25,38 @@ class GuruvaniService:
     guruvani_repository: GuruvaniRepositoryPort
     uow: UnitOfWork
 
-    def _guruvani_get_to_detail(self, quote: GuruvaniGet) -> GuruvaniDetail:
+    def _guruvani_get_to_detail(
+        self, quote: GuruvaniGet, language_code: Optional[str] = None
+    ) -> GuruvaniDetail:
+        translations = quote.translations
+        if language_code is not None:
+            translations = [
+                t for t in translations if t.language_code == language_code
+            ]
         return GuruvaniDetail(
             id=quote.id,
             sort_order=quote.sort_order,
             translations=[
                 GuruvaniTranslationSchema(language_code=t.language_code, text=t.text)
-                for t in quote.translations
+                for t in translations
             ],
         )
 
-    def list_all(self) -> List[GuruvaniDetail]:
+    def list_all(self, language_code: Optional[str] = None) -> List[GuruvaniDetail]:
         quotes = self.guruvani_repository.list_all()
-        return [self._guruvani_get_to_detail(q) for q in quotes]
+        return [self._guruvani_get_to_detail(q, language_code) for q in quotes]
 
-    def get(self, guruvani_id: int) -> GuruvaniDetail:
+    def get(self, guruvani_id: int, language_code: Optional[str] = None) -> GuruvaniDetail:
         quote = self.guruvani_repository.get(guruvani_id)
         if quote is None:
             raise GuruvaniNotFoundException(guruvani_id)
-        return self._guruvani_get_to_detail(quote)
+        return self._guruvani_get_to_detail(quote, language_code)
 
-    def get_random(self) -> GuruvaniDetail:
+    def get_random(self, language_code: Optional[str] = None) -> GuruvaniDetail:
         quote = self.guruvani_repository.get_random()
         if quote is None:
             raise GuruvaniNotFoundException("no Guruvani entries exist")
-        return self._guruvani_get_to_detail(quote)
+        return self._guruvani_get_to_detail(quote, language_code)
 
     def create(self, sort_order: Optional[int]) -> GuruvaniDetail:
         with self.uow as uow:

@@ -235,6 +235,80 @@ def test_delete_missing_returns_404(client):
     assert resp.status_code == 404
 
 
+def test_list_filters_by_language_code(client):
+    created = client.post(
+        "/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN)
+    ).json()
+    client.put(
+        f"/api/v1/guruvani/{created['id']}/translations/en",
+        json={"text": "a saying"},
+        headers=bearer_header(Role.ADMIN),
+    )
+    client.put(
+        f"/api/v1/guruvani/{created['id']}/translations/ml",
+        json={"text": "a saying ml"},
+        headers=bearer_header(Role.ADMIN),
+    )
+
+    resp = client.get("/api/v1/guruvani", params={"language_code": "en"})
+    assert resp.status_code == 200
+    [quote] = resp.json()
+    assert quote["translations"] == [{"language_code": "en", "text": "a saying"}]
+
+
+def test_get_filters_by_language_code(client):
+    created = client.post(
+        "/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN)
+    ).json()
+    client.put(
+        f"/api/v1/guruvani/{created['id']}/translations/en",
+        json={"text": "a saying"},
+        headers=bearer_header(Role.ADMIN),
+    )
+    client.put(
+        f"/api/v1/guruvani/{created['id']}/translations/ml",
+        json={"text": "a saying ml"},
+        headers=bearer_header(Role.ADMIN),
+    )
+
+    resp = client.get(
+        f"/api/v1/guruvani/{created['id']}", params={"language_code": "ml"}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["translations"] == [{"language_code": "ml", "text": "a saying ml"}]
+
+
+def test_random_filters_by_language_code(client):
+    created = client.post(
+        "/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN)
+    ).json()
+    client.put(
+        f"/api/v1/guruvani/{created['id']}/translations/en",
+        json={"text": "a saying"},
+        headers=bearer_header(Role.ADMIN),
+    )
+    client.put(
+        f"/api/v1/guruvani/{created['id']}/translations/ml",
+        json={"text": "a saying ml"},
+        headers=bearer_header(Role.ADMIN),
+    )
+
+    resp = client.get("/api/v1/guruvani/random", params={"language_code": "en"})
+    assert resp.status_code == 200
+    assert resp.json()["translations"] == [{"language_code": "en", "text": "a saying"}]
+
+
+def test_get_rejects_unsupported_language_code_filter(client):
+    created = client.post(
+        "/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN)
+    ).json()
+
+    resp = client.get(
+        f"/api/v1/guruvani/{created['id']}", params={"language_code": "fr"}
+    )
+    assert resp.status_code == 422
+
+
 def test_read_endpoint_rejects_invalid_bearer_token(client):
     resp = client.get(
         "/api/v1/guruvani", headers={"Authorization": "Bearer not-a-real-token"}
