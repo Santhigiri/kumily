@@ -7,7 +7,7 @@ adapter class. DTO -> schema conversion happens here, not in the router.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 from app.core.ports.unit_of_work import UnitOfWork
 from app.features.guru_gita.ports import (
@@ -25,26 +25,33 @@ class GuruGitaService:
     guru_gita_repository: GuruGitaRepositoryPort
     uow: UnitOfWork
 
-    def _verse_get_to_detail(self, verse: GuruGitaVerseGet) -> GuruGitaVerseDetail:
+    def _verse_get_to_detail(
+        self, verse: GuruGitaVerseGet, language_code: Optional[str] = None
+    ) -> GuruGitaVerseDetail:
+        translations = verse.translations
+        if language_code is not None:
+            translations = [
+                t for t in translations if t.language_code == language_code
+            ]
         return GuruGitaVerseDetail(
             verse_number=verse.verse_number,
             translations=[
                 GuruGitaTranslationSchema(
                     language_code=t.language_code, text=t.text
                 )
-                for t in verse.translations
+                for t in translations
             ],
         )
 
-    def list_all(self) -> List[GuruGitaVerseDetail]:
+    def list_all(self, language_code: Optional[str] = None) -> List[GuruGitaVerseDetail]:
         verses = self.guru_gita_repository.list_all()
-        return [self._verse_get_to_detail(v) for v in verses]
+        return [self._verse_get_to_detail(v, language_code) for v in verses]
 
-    def get(self, verse_number: int) -> GuruGitaVerseDetail:
+    def get(self, verse_number: int, language_code: Optional[str] = None) -> GuruGitaVerseDetail:
         verse = self.guru_gita_repository.get(verse_number)
         if verse is None:
             raise GuruGitaVerseNotFoundException(verse_number)
-        return self._verse_get_to_detail(verse)
+        return self._verse_get_to_detail(verse, language_code)
 
     def upsert_translation(
         self, verse_number: int, language_code: str, text: str
