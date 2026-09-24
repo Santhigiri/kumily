@@ -4,31 +4,20 @@ from typing import List, Optional, Protocol
 
 
 class GuruvaniNotFoundException(Exception):
-    """Raised when reading/updating/deleting a Guruvani id that does not exist."""
+    """Raised when reading/deleting a quote (or one of its translations) that does not exist."""
 
 
 @dataclass(frozen=True, kw_only=True)
-class GuruvaniBase:
-    text_en: str
-    text_ml: str
-    sort_order: Optional[int] = None
+class GuruvaniTranslation:
+    language_code: str
+    text: str
 
 
 @dataclass(frozen=True, kw_only=True)
-class GuruvaniGet(GuruvaniBase):
+class GuruvaniGet:
     id: int
-
-
-@dataclass(frozen=True, kw_only=True)
-class GuruvaniCreate(GuruvaniBase):
-    pass
-
-
-@dataclass(frozen=True, kw_only=True)
-class GuruvaniUpdate:
-    text_en: Optional[str] = None
-    text_ml: Optional[str] = None
-    sort_order: Optional[int] = None
+    sort_order: int
+    translations: List[GuruvaniTranslation]
 
 
 class GuruvaniRepositoryPort(Protocol):
@@ -43,10 +32,18 @@ class GuruvaniRepositoryPort(Protocol):
     def get_random(self) -> Optional[GuruvaniGet]: ...
 
     @abstractmethod
-    def create(self, guruvani: GuruvaniCreate) -> GuruvaniGet: ...
+    def create(self, sort_order: Optional[int]) -> GuruvaniGet: ...
 
     @abstractmethod
-    def update(self, guruvani_id: int, changes: GuruvaniUpdate) -> GuruvaniGet: ...
+    def upsert_translation(
+        self, guruvani_id: int, language_code: str, text: str
+    ) -> GuruvaniGet: ...
+
+    @abstractmethod
+    def delete_translation(self, guruvani_id: int, language_code: str) -> None: ...
+
+    @abstractmethod
+    def update_sort_order(self, guruvani_id: int, sort_order: int) -> GuruvaniGet: ...
 
     @abstractmethod
     def delete(self, guruvani_id: int) -> None: ...

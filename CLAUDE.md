@@ -2,7 +2,7 @@
 
 ## Project Purpose
 
-Kumily is a FastAPI content-delivery server for **Santhigiri Ashram** (Pothencode, Kerala, India). It owns editable, ashram-facing content that has nothing to do with astronomical computation — starting with **Guruvani** (bilingual quotes attributed to the Guru), with more content features to follow.
+Kumily is a FastAPI content-delivery server for **Santhigiri Ashram** (Pothencode, Kerala, India). It owns editable, ashram-facing content that has nothing to do with astronomical computation — starting with **Guruvani** (multi-language quotes attributed to the Guru) and **Guru Gita** (multi-language verses), with more content features to follow. Every content feature stores its translatable text as one row per `(parent, language_code)` — see "Multi-language content" below — so adding a new language is a data change, never a schema migration.
 
 It exists to keep [`chandiroor`](../chandiroor) — the Ashram's Panchangam microservice — scoped to panchangam/astronomical data only. `chandiroor` used to own the `guruvani` table and its CRUD endpoints directly; that feature is being migrated here first, as the template for every content feature that follows. Kumily and chandiroor are sibling services: independent deployments, independent databases, sharing only the identity provider (TVM) both verify tokens against.
 
@@ -42,13 +42,19 @@ kumily/
     ├── api/
     │   └── deps.py                 # Shared Depends: get_*_service, get_current_principal, require_role — also where every port gets bound to its concrete adapter
     ├── features/                   # One subpackage per feature — the HTTP boundary + orchestration for that feature
-    │   ├── guruvani/                    # Bilingual quote CRUD — the reference feature; match its shape for every new one
-    │   │   ├── ports.py       # GuruvaniRepositoryPort (Protocol) + DTOs (GuruvaniGet/Create/Update) + GuruvaniNotFoundException
+    │   ├── guruvani/                    # Multi-language quote CRUD — the reference feature; match its shape for every new one
+    │   │   ├── ports.py       # GuruvaniRepositoryPort (Protocol) + DTOs (GuruvaniGet, GuruvaniTranslation) + GuruvaniNotFoundException
     │   │   ├── repository.py  # GuruvaniRepository — concrete adapter implementing the port against SQLModel
     │   │   ├── router.py      # CRUD endpoints, mounted at /api/v1/guruvani
     │   │   ├── service.py     # GuruvaniService — depends on GuruvaniRepositoryPort + UnitOfWork, never the concrete adapter
     │   │   └── schemas.py     # Request/response schemas (HTTP boundary shape, distinct from ports.py's DTOs)
-    │   └── etag/                        # Shared ETag/conditional-response helpers — a utility feature, not yet consumed by guruvani
+    │   ├── guru_gita/                   # Verse translations — one row per (verse_number, language_code); same translation-row shape as guruvani
+    │   │   ├── ports.py       # GuruGitaRepositoryPort (Protocol) + DTOs (GuruGitaVerseGet, GuruGitaTranslation) + GuruGitaVerseNotFoundException
+    │   │   ├── repository.py  # GuruGitaRepository — groups translation rows into one verse per verse_number
+    │   │   ├── router.py      # CRUD endpoints, mounted at /api/v1/guru-gita
+    │   │   ├── service.py     # GuruGitaService — depends on GuruGitaRepositoryPort + UnitOfWork, never the concrete adapter
+    │   │   └── schemas.py     # Request/response schemas
+    │   └── etag/                        # Shared ETag/conditional-response helpers — consumed by both guruvani and guru_gita
     │       ├── ports.py       # EtagRepositoryPort (Protocol) — no DTO, the boundary value is a bare ETag string
     │       ├── repository.py  # EtagRepository — concrete adapter implementing the port against SQLModel (dataset_etag table)
     │       └── service.py     # compute_etag / etag_json_response / etag_text_response / conditional_json_response / invalidate —
@@ -59,7 +65,9 @@ kumily/
     │   ├── unit_of_work.py         # SqlUnitOfWork — the one concrete UnitOfWork adapter (see "Ports & adapters" below)
     │   ├── typing_utils.py         # col() — Pyright escape hatch for SQLModel class-attribute typing, see its docstring
     │   ├── alembic/                # Alembic migration environment (env.py reads DATABASE_URL the same way the app does)
-    │   └── models/                 # SQLModel table definitions (guruvani.py, dataset_etag.py)
+    │   └── models/                 # SQLModel table definitions: guruvani.py (Guruvani + GuruvaniTranslation),
+    │                               # guru_gita.py (GuruGitaVerse), dataset_etag.py — every translatable feature's
+    │                               # table(s) follow the row-per-(parent, language_code) shape, see "Multi-language content" below
     ├── core/                        # Shared by every feature
     │   ├── config.py                # Settings singleton: DATABASE_URL, TVM_JWKS_URL/TVM_JWT_PUBLIC_KEY, CORS
     │   ├── security.py              # verify_access_token — TVM JWT verification, returns TvmClaims
@@ -68,6 +76,7 @@ kumily/
     │       └── unit_of_work.py     # UnitOfWork (Protocol) — the transaction boundary every feature's service depends on
     └── utils/
         ├── roles.py                 # Role enum — mirrors chandiroor's exactly, both verify tokens from the same TVM
+        ├── languages.py              # LanguageCode enum — the shared allow-list every feature's schemas.py validates language_code against
         ├── etag.py                  # if_none_match_satisfied — RFC 9110 If-None-Match header matching
         └── content_hash.py          # stable_hash — deterministic sha256 over a JSON-native structure, used for ETags
 ```
@@ -80,7 +89,7 @@ kumily/
 
 **`core/`** holds cross-cutting infrastructure with no feature-specific business logic: `config.py` (settings), `security.py` + `jwks_client.py` (TVM JWT verification), and `ports/unit_of_work.py` (the one Protocol every migrated feature's service depends on for its transaction boundary).
 
-**`utils/`** holds `roles.py` and small, dependency-free helpers (`etag.py`, `content_hash.py`) genuinely shared across features or consumed by `core/`/`db/` (which must not depend on `features/`).
+**`utils/`** holds `roles.py`, `languages.py`, and small, dependency-free helpers (`etag.py`, `content_hash.py`) genuinely shared across features or consumed by `core/`/`db/` (which must not depend on `features/`).
 
 ### Ports & adapters
 
@@ -88,7 +97,7 @@ Every feature is built as **ports and adapters**: a feature's service depends on
 
 The pieces, using `features/guruvani/` as the reference:
 
-- **`ports.py`** defines three things: the repository `Protocol` (`GuruvaniRepositoryPort`), frozen `@dataclass` DTOs for data crossing the boundary (`GuruvaniGet`/`Create`/`Update`), and any domain exceptions the port can raise (`GuruvaniNotFoundException`). Nothing in `ports.py` imports SQLModel or a session.
+- **`ports.py`** defines three things: the repository `Protocol` (`GuruvaniRepositoryPort`), frozen `@dataclass` DTOs for data crossing the boundary (`GuruvaniGet`, holding a list of `GuruvaniTranslation`), and any domain exceptions the port can raise (`GuruvaniNotFoundException`). Nothing in `ports.py` imports SQLModel or a session.
 - **The adapter** (`features/guruvani/repository.py`) is a concrete class implementing the port against SQLModel: it takes a `Session`, and every method translates ORM rows to/from the port's DTOs.
 - **`service.py`** is a frozen `@dataclass` (not a plain `__init__`) holding the port and a `UnitOfWork` (`core/ports/unit_of_work.py`) as fields — e.g. `GuruvaniService(guruvani_repository: GuruvaniRepositoryPort, uow: UnitOfWork)`. It imports the port's Protocol and DTOs, never the concrete adapter class or `Session`. Request-schema → DTO conversion (and the reverse, DTO → response-schema) happens inside `service.py` methods, not in the router.
 - **`db/unit_of_work.py::SqlUnitOfWork`** is the one concrete `UnitOfWork` adapter, wrapping a `Session`. A mutation wraps the repository call(s) in `with self.uow as uow: ...; uow.commit()`.
@@ -141,9 +150,18 @@ Follow these rules without exception.
 - All domain/business logic for a feature lives in that feature's own `service.py`.
 - No business logic may live inside a route handler.
 
+### Multi-language content
+
+Any feature holding user/Guru-facing translatable text (Guruvani, Guru Gita, and every future one) must store it as **one row per `(parent identity, language_code)`** — never as fixed per-language columns (`text_en`, `text_ml`, ...). `guru_gita_verse` (`db/models/guru_gita.py`) is the reference table shape: `verse_number` + `language_code` + `text`, with a `UniqueConstraint(verse_number, language_code)`. `guruvani_translation` follows the same shape, keyed by `guruvani_id` instead — Guruvani was originally ported from `chandiroor` with fixed `text_en`/`text_ml` columns and was migrated to this pattern precisely because a fixed-column table can't add a language without a schema migration, while a translation-row table takes a new language as a plain insert.
+
+- **`language_code` is validated once, at the HTTP boundary.** `utils/languages.py::LanguageCode` is the shared allow-list (`en`, `ml`, ...); every feature's `schemas.py` types its language-bearing field/path-param as `LanguageCode` so an unsupported code is rejected with `422` before it reaches the service. `ports.py`, the repository, and the SQLModel column all keep `language_code` as a plain `str` — don't duplicate the enum below the schema layer, and don't invent a second allow-list per feature.
+- **A feature's `ports.py` DTO exposes a `translations: List[<Feature>Translation]` field** on its "get" DTO (see `GuruvaniGet`/`GuruGitaVerseGet`) rather than fixed per-language fields — the repository groups a parent's translation rows into this list (`_rows_to_*_get` in `repository.py`).
+- **Router shape**: list/get endpoints return **every** translation for the row — there is no `?lang=` filter; the caller renders whichever language it wants client-side, which keeps a single ETag valid for every language at once. Mutations are per-translation: `PUT .../translations/{language_code}` upserts one language's text, `DELETE .../translations/{language_code}` removes just that language — never a single payload that carries every language's text at once.
+- If the feature's rows need an ordering or identity that isn't naturally derivable from the translated content itself (e.g. Guruvani's `sort_order`), keep a real parent table (`guruvani`) separate from the translation table (`guruvani_translation`), with the translation table's FK pointing at the parent. A feature whose natural key already comes from outside translation (e.g. Guru Gita's `verse_number`) doesn't need a separate parent table at all — the translation rows alone are the table.
+
 ### Adding a new content feature
 
-1. Create `features/<name>/` with `ports.py`, `repository.py`, `service.py`, `router.py`, and `schemas.py`, following `features/guruvani/`'s shape exactly (see "Ports & adapters" above). Do not add endpoints to an existing feature's router unless they are closely related to that feature.
+1. Create `features/<name>/` with `ports.py`, `repository.py`, `service.py`, `router.py`, and `schemas.py`, following `features/guruvani/`'s shape exactly (see "Ports & adapters" above). Do not add endpoints to an existing feature's router unless they are closely related to that feature. **If the feature holds any translatable text, its table(s) must follow the "Multi-language content" row-per-translation shape from the start** — do not ship fixed per-language columns and plan to migrate later.
 2. Add the table model(s) under `db/models/<name>.py` and register them in `db/models/__init__.py` (import order matters if there are FKs — lookup/parent tables first).
 3. Generate an Alembic migration: `uv run alembic revision --autogenerate -m "add <name> table"`, review the generated script, then `uv run alembic upgrade head` against your local database.
 4. Wire the concrete adapter to its port in `api/deps.py` — a `get_<name>_repository` returning the port type, and a `get_<name>_service` building the service from it + `UnitOfWorkDep`.
@@ -201,14 +219,16 @@ The container exposes port 8001 and runs `uvicorn app.main:app --host 0.0.0.0 --
 
 ### Endpoints
 
-Guruvani quotes (read public; writes require the `admin` role):
+Guruvani quotes (read public; writes require the `admin` role). Every quote's text lives in translation rows — see "Multi-language content" above:
 
-- `GET    /api/v1/guruvani` — list every quote, ordered by `sort_order` (public)
-- `GET    /api/v1/guruvani/random` — fetch one quote at random (public)
-- `GET    /api/v1/guruvani/{id}` — fetch one quote (public)
-- `POST   /api/v1/guruvani` — create a quote (admin)
-- `PUT    /api/v1/guruvani/{id}` — partial-update a quote (admin)
-- `DELETE /api/v1/guruvani/{id}` — delete a quote (admin)
+- `GET    /api/v1/guruvani` — list every quote, ordered by `sort_order`, with every available translation (public)
+- `GET    /api/v1/guruvani/random` — fetch one quote at random, with every available translation (public)
+- `GET    /api/v1/guruvani/{id}` — fetch one quote with all its translations (public)
+- `POST   /api/v1/guruvani` — create a quote's parent row (no translations yet) (admin)
+- `PUT    /api/v1/guruvani/{id}/translations/{language_code}` — create or update one language's text (admin)
+- `DELETE /api/v1/guruvani/{id}/translations/{language_code}` — remove one language's text (admin)
+- `PUT    /api/v1/guruvani/{id}/sort-order` — update a quote's display order (admin)
+- `DELETE /api/v1/guruvani/{id}` — delete a quote entirely, every language (admin)
 
 Authentication: Kumily has no `/api/v1/auth/*` endpoints of its own — it never issues tokens. Log in against TVM (the Ashram's auth microservice) and pass the resulting `Authorization: Bearer <token>` on every request to Kumily.
 
@@ -224,8 +244,9 @@ uv run pytest tests/
 
 Current coverage:
 
-- `tests/features/guruvani/test_repository.py` — `GuruvaniRepository` CRUD, sort-order assignment, random selection.
-- `tests/features/guruvani/test_router.py` — end-to-end CRUD through `TestClient`, including admin-role enforcement and the `/random` route-ordering guard.
+- `tests/features/guruvani/test_repository.py` — `GuruvaniRepository` CRUD, per-translation upsert/delete, sort-order assignment, random selection.
+- `tests/features/guruvani/test_router.py` — end-to-end CRUD through `TestClient`, including admin-role enforcement, `LanguageCode` rejection, and the `/random` route-ordering guard.
+- `tests/features/guru_gita/` — the same shape, for `GuruGitaRepository`/router (verse translations keyed by `verse_number`).
 - `tests/features/etag/test_repository.py` — `EtagRepository` get/set/upsert round-trips.
 
 Tests use an in-memory SQLite engine (the FK pragma listener in `app/db/database.py` makes SQLite behave closer to Postgres); see `tests/conftest.py`. The router tests override `get_session` onto a per-test session and drive the app with `TestClient`. `tests/conftest.py` also mints test bearer tokens for `require_role`-gated endpoints: `bearer_header(role, user_id=1)` returns an `Authorization` header carrying a throwaway RS256 token shaped like a real TVM-issued one, and the autouse `_mock_tvm_jwks` fixture points `core.jwks_client` at that same in-memory test keypair instead of making a real HTTP call — no real TVM instance is needed to run the suite.
@@ -247,13 +268,16 @@ Review every autogenerated migration before committing it — `--autogenerate` i
 
 The `guruvani` table's **data** has been migrated out of chandiroor's database into Kumily's own local Postgres instance (a one-time, separate operational step — a `pg_dump`/`pg_restore` of just that table, or a `COPY` via `psql` — not something either service's code handles). chandiroor's `/api/v1/guruvani/*` endpoints still exist as of this writing and are no longer the source of truth; removing chandiroor's guruvani feature entirely is a follow-up step, not yet done.
 
+Guruvani's own schema was later normalized from fixed `text_en`/`text_ml` columns into a separate `guruvani_translation` table (migration `9363bde18594`), matching Guru Gita's row-per-`(parent, language_code)` shape — see "Multi-language content" above. The migration backfills existing `text_en`/`text_ml` values into `en`/`ml` translation rows before dropping the old columns; its `downgrade()` reverses that (any language beyond `en`/`ml` added after the upgrade is not recoverable by the downgrade, since it only reverses what the upgrade itself did).
+
 ---
 
 ## Known Issues and Active Work
 
 - The `guruvani` data has been migrated to Kumily's own Postgres — see "Database & Migrations" above. chandiroor's own `guruvani` feature/endpoints still exist and have not yet been removed; that cleanup is still pending.
 - Kumily currently runs against a local Postgres instance on a Proxmox LXC container (`DATABASE_URL` in `.env`, not committed). Migrating this to Neon (matching chandiroor's setup) is still a follow-up step, not yet done.
-- `features/etag/` is scaffolded but not yet wired into any `guruvani` endpoint — none of Kumily's current content is expensive enough to compute that a cached ETag matters yet. Wire it in (via `conditional_json_response`) when a future content feature actually needs cache-friendly reads.
+- `features/etag/` is consumed by both `guruvani` (`etag_json_response`, fresh-hash per request) and `guru_gita` (`conditional_json_response`, persisted key `"guru_gita:all"`) — pick whichever fits a new feature's read volume and payload size; see their docstrings.
+- Guruvani and Guru Gita both store translatable text as one row per `(parent, language_code)` — see "Multi-language content" above — with `language_code` validated against `utils/languages.py::LanguageCode`. Adding a new supported language is a one-line addition to that enum plus inserting translation rows; it needs no schema migration.
 - No CI deploy workflow exists yet (chandiroor's `.github/workflows/docker-build-push.yml` has no Kumily equivalent) — only `lint.yml` (import-linter) and `test.yml` (pytest) currently run in CI.
 
 ---
@@ -267,3 +291,5 @@ The `guruvani` table's **data** has been migrated out of chandiroor's database i
 - Do not hand-edit `pyproject.toml`'s dependency lists without running `uv lock` afterward — `uv.lock` must always match `pyproject.toml`.
 - Do not bypass Alembic for schema changes — `init_db()`'s `create_all()` is a dev-only safety net, not a migration tool.
 - Do not treat chandiroor's and Kumily's `guruvani` data as synced — until the one-time data migration runs and chandiroor's guruvani feature is removed, they are independent copies.
+- Do not add fixed per-language columns (`text_en`, `text_ml`, `title_fr`, ...) to a table holding translatable text — use a row-per-`(parent, language_code)` translation table instead, see "Multi-language content" above. This is exactly the shape Guruvani was migrated away from.
+- Do not accept an unvalidated `language_code` string in a feature's `schemas.py` — type it as `utils/languages.py::LanguageCode` so an unsupported code is rejected at the HTTP boundary instead of silently creating an orphan translation.

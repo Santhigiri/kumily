@@ -5,33 +5,43 @@ require the ``admin`` role (see ``features/guruvani/router.py``).
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
-class GuruvaniBase(BaseModel):
-    text_en: str = Field(min_length=1)
-    text_ml: str = Field(min_length=1)
-    sort_order: Optional[int] = Field(
-        default=None,
-        description="Display order; assigned automatically when omitted on create.",
-    )
+from app.utils.languages import LanguageCode
 
 
-class GuruvaniCreate(GuruvaniBase):
-    pass
+class GuruvaniTranslationSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    language_code: LanguageCode
+    text: str = Field(min_length=1)
 
 
-class GuruvaniUpdate(BaseModel):
-    """Partial update — only the fields present in the body are changed."""
-
-    text_en: Optional[str] = Field(default=None, min_length=1)
-    text_ml: Optional[str] = Field(default=None, min_length=1)
-    sort_order: Optional[int] = None
-
-
-class GuruvaniDetail(GuruvaniBase):
+class GuruvaniDetail(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    sort_order: int
+    translations: List[GuruvaniTranslationSchema]
+
+
+class GuruvaniCreate(BaseModel):
+    sort_order: Optional[int] = Field(
+        default=None,
+        description="Display order; assigned automatically when omitted.",
+    )
+
+
+class GuruvaniTranslationUpsert(BaseModel):
+    """Body for creating or updating one language's text for a quote.
+
+    ``guruvani_id`` and ``language_code`` come from the URL path.
+    """
+
+    text: str = Field(min_length=1)
+
+
+class GuruvaniSortOrderUpdate(BaseModel):
+    sort_order: int

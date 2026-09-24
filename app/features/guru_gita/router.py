@@ -26,6 +26,7 @@ from app.api.deps import EtagRepositoryDep, GuruGitaServiceDep, UnitOfWorkDep, r
 from app.features.etag.service import conditional_json_response, invalidate
 from app.features.guru_gita.schemas import GuruGitaTranslationUpsert, GuruGitaVerseDetail
 from app.features.guru_gita.service import GuruGitaVerseNotFound
+from app.utils.languages import LanguageCode
 from app.utils.roles import Role
 
 router = APIRouter(prefix="/guru-gita", tags=["guru-gita"])
@@ -72,13 +73,13 @@ def get_guru_gita_verse(
 )
 def upsert_guru_gita_translation(
     verse_number: int,
-    language_code: str,
+    language_code: LanguageCode,
     payload: GuruGitaTranslationUpsert,
     service: GuruGitaServiceDep,
     etag_repository: EtagRepositoryDep,
     unit_of_work: UnitOfWorkDep,
 ) -> GuruGitaVerseDetail:
-    verse = service.upsert_translation(verse_number, language_code, payload.text)
+    verse = service.upsert_translation(verse_number, language_code.value, payload.text)
     invalidate(etag_repository, unit_of_work, _ALL_KEY, service.list_all())
     return verse
 
@@ -90,17 +91,17 @@ def upsert_guru_gita_translation(
 )
 def delete_guru_gita_translation(
     verse_number: int,
-    language_code: str,
+    language_code: LanguageCode,
     service: GuruGitaServiceDep,
     etag_repository: EtagRepositoryDep,
     unit_of_work: UnitOfWorkDep,
 ) -> Response:
     try:
-        service.delete_translation(verse_number, language_code)
+        service.delete_translation(verse_number, language_code.value)
     except GuruGitaVerseNotFound:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
-            detail=f"Translation '{language_code}' for verse '{verse_number}' not found.",
+            detail=f"Translation '{language_code.value}' for verse '{verse_number}' not found.",
         )
     invalidate(etag_repository, unit_of_work, _ALL_KEY, service.list_all())
     return Response(status_code=status.HTTP_204_NO_CONTENT)
