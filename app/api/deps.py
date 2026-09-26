@@ -41,6 +41,9 @@ from app.features.guru_gita.service import GuruGitaService
 from app.features.guruvani.ports import GuruvaniRepositoryPort
 from app.features.guruvani.repository import GuruvaniRepository
 from app.features.guruvani.service import GuruvaniService
+from app.features.settings.ports import AppSettingRepositoryPort
+from app.features.settings.repository import AppSettingRepository
+from app.features.settings.service import SettingsService
 from app.utils.roles import Role
 
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -97,6 +100,25 @@ def get_guru_gita_service(
 
 
 GuruGitaServiceDep = Annotated[GuruGitaService, Depends(get_guru_gita_service)]
+
+
+def get_settings_repository(session: SessionDep) -> AppSettingRepositoryPort:
+    return AppSettingRepository(session)
+
+
+SettingsRepositoryDep = Annotated[
+    AppSettingRepositoryPort, Depends(get_settings_repository)
+]
+
+
+def get_settings_service(
+    settings_repository: SettingsRepositoryDep,
+    unit_of_work: UnitOfWorkDep,
+) -> SettingsService:
+    return SettingsService(settings_repository, unit_of_work)
+
+
+SettingsServiceDep = Annotated[SettingsService, Depends(get_settings_service)]
 
 
 # ── Principal ─────────────────────────────────────────────────────────────────
