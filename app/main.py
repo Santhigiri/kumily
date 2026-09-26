@@ -6,6 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.features.guru_gita.router import router as guru_gita_v1_router
 from app.features.guruvani.router import router as guruvani_v1_router
+from app.features.settings.router import router as settings_v1_router
+from app.features.settings.router_v2 import router as settings_v2_router
 from app.utils.lifespan import lifespan
 
 app = FastAPI(lifespan=lifespan)
@@ -21,4 +23,6 @@ app.add_middleware(
 )
 
 app.include_router(guruvani_v1_router, prefix="/api/v1")
+app.include_router(settings_v1_router, prefix="/api/v1")
 app.include_router(guru_gita_v1_router, prefix="/api/v1")
+app.include_router(settings_v2_router, prefix="/api/v2")
