@@ -28,10 +28,15 @@ class GuruvaniDetail(BaseModel):
 
 
 class GuruvaniCreate(BaseModel):
+    """Body for creating a new quote. A quote exists only via its translation
+    rows, so creation requires the first translation up front."""
+
     sort_order: Optional[int] = Field(
         default=None,
         description="Display order; assigned automatically when omitted.",
     )
+    language_code: LanguageCode
+    text: str = Field(min_length=1)
 
 
 class GuruvaniTranslationUpsert(BaseModel):
