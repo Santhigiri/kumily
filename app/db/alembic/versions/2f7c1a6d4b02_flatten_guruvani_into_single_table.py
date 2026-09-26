@@ -1,7 +1,7 @@
 """flatten guruvani into a single translation table
 
 Revision ID: 2f7c1a6d4b02
-Revises: 9363bde18594
+Revises: 49f24ac5d952
 Create Date: 2026-09-26 00:00:00.000000
 
 """
@@ -14,7 +14,7 @@ import sqlmodel.sql.sqltypes
 
 # revision identifiers, used by Alembic.
 revision: str = '2f7c1a6d4b02'
-down_revision: Union[str, Sequence[str], None] = '9363bde18594'
+down_revision: Union[str, Sequence[str], None] = '49f24ac5d952'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
