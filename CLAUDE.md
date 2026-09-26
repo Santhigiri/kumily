@@ -230,16 +230,6 @@ Guruvani quotes (read public; writes require the `admin` role). Every quote's te
 - `PUT    /api/v1/guruvani/{id}/sort-order` — update a quote's display order (admin)
 - `DELETE /api/v1/guruvani/{id}` — delete a quote entirely, every language (admin)
 
-Application settings (read public; writes require the `admin` role) — client-facing config such as the supported calendar year range and available languages, not internal tuning knobs. A generic key-value store (`app_setting` table), keyed by `utils.settings_keys.SettingKey`, each key's `value` shape defined in `features/settings/schemas.py`. Unknown known-key reads (no row stored yet) return a synthesized default rather than 404ing:
-
-- `GET /api/v1/settings` — list every known setting (public)
-- `GET /api/v1/settings/{key}` — fetch one setting (public)
-- `PUT /api/v1/settings/{key}` — replace a setting's value (admin)
-- `calendar_range` — `{start_year, end_year}` inclusive year bounds for calendar/date pickers
-- `languages` — `{codes}` list of available language codes, defaulting to every member of `utils/languages.py::LanguageCode`
-
-Mirrored at `/api/v2/settings` (`features/settings/router_v2.py`) per "Versioning without a `v1/` directory" above — currently behaves identically to v1; it exists as the seam for a v2-only change without touching v1's contract.
-
 Authentication: Kumily has no `/api/v1/auth/*` endpoints of its own — it never issues tokens. Log in against TVM (the Ashram's auth microservice) and pass the resulting `Authorization: Bearer <token>` on every request to Kumily.
 
 ---
@@ -257,7 +247,6 @@ Current coverage:
 - `tests/features/guruvani/test_repository.py` — `GuruvaniRepository` CRUD, per-translation upsert/delete, sort-order assignment, random selection.
 - `tests/features/guruvani/test_router.py` — end-to-end CRUD through `TestClient`, including admin-role enforcement, `LanguageCode` rejection, and the `/random` route-ordering guard.
 - `tests/features/guru_gita/` — the same shape, for `GuruGitaRepository`/router (verse translations keyed by `verse_number`).
-- `tests/features/settings/` — `AppSettingRepository` upsert/get/list, and router tests (public reads, admin writes, unknown-key handling, invalid-value-shape rejection) for both `/api/v1/settings` and `/api/v2/settings`.
 - `tests/features/etag/test_repository.py` — `EtagRepository` get/set/upsert round-trips.
 
 Tests use an in-memory SQLite engine (the FK pragma listener in `app/db/database.py` makes SQLite behave closer to Postgres); see `tests/conftest.py`. The router tests override `get_session` onto a per-test session and drive the app with `TestClient`. `tests/conftest.py` also mints test bearer tokens for `require_role`-gated endpoints: `bearer_header(role, user_id=1)` returns an `Authorization` header carrying a throwaway RS256 token shaped like a real TVM-issued one, and the autouse `_mock_tvm_jwks` fixture points `core.jwks_client` at that same in-memory test keypair instead of making a real HTTP call — no real TVM instance is needed to run the suite.
