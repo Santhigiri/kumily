@@ -32,7 +32,9 @@ class GuruvaniRepositoryPort(Protocol):
     def get_random(self) -> Optional[GuruvaniGet]: ...
 
     @abstractmethod
-    def create(self, sort_order: Optional[int]) -> GuruvaniGet: ...
+    def create(
+        self, sort_order: Optional[int], language_code: str, text: str
+    ) -> GuruvaniGet: ...
 
     @abstractmethod
     def upsert_translation(

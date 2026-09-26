@@ -58,9 +58,11 @@ class GuruvaniService:
             raise GuruvaniNotFoundException("no Guruvani entries exist")
         return self._guruvani_get_to_detail(quote, language_code)
 
-    def create(self, sort_order: Optional[int]) -> GuruvaniDetail:
+    def create(
+        self, sort_order: Optional[int], language_code: str, text: str
+    ) -> GuruvaniDetail:
         with self.uow as uow:
-            quote = self.guruvani_repository.create(sort_order)
+            quote = self.guruvani_repository.create(sort_order, language_code, text)
             uow.commit()
             return self._guruvani_get_to_detail(quote)
 

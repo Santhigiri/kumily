@@ -15,6 +15,10 @@ def client(session):
     app.dependency_overrides.clear()
 
 
+def _create_payload(text="a saying"):
+    return {"language_code": "en", "text": text}
+
+
 def test_list_is_public(client):
     resp = client.get("/api/v1/guruvani")
     assert resp.status_code == 200
@@ -22,25 +26,34 @@ def test_list_is_public(client):
 
 
 def test_create_requires_admin(client):
-    resp = client.post("/api/v1/guruvani", json={})
+    resp = client.post("/api/v1/guruvani", json=_create_payload())
     assert resp.status_code == 401
 
 
 def test_create_rejects_insufficient_role(client):
     resp = client.post(
-        "/api/v1/guruvani", json={}, headers=bearer_header(Role.USER)
+        "/api/v1/guruvani", json=_create_payload(), headers=bearer_header(Role.USER)
     )
     assert resp.status_code == 403
 
 
+def test_create_rejects_unsupported_language_code(client):
+    resp = client.post(
+        "/api/v1/guruvani",
+        json={"language_code": "fr", "text": "a saying"},
+        headers=bearer_header(Role.ADMIN),
+    )
+    assert resp.status_code == 422
+
+
 def test_admin_can_create_and_public_can_read_it_back(client):
     created = client.post(
-        "/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN)
+        "/api/v1/guruvani", json=_create_payload(), headers=bearer_header(Role.ADMIN)
     )
     assert created.status_code == 201
     body = created.json()
     assert body["sort_order"] == 1
-    assert body["translations"] == []
+    assert body["translations"] == [{"language_code": "en", "text": "a saying"}]
 
     fetched = client.get(f"/api/v1/guruvani/{body['id']}")
     assert fetched.status_code == 200
@@ -58,7 +71,9 @@ def test_random_returns_404_when_empty(client):
 
 
 def test_random_is_registered_ahead_of_id_route(client):
-    client.post("/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN))
+    client.post(
+        "/api/v1/guruvani", json=_create_payload(), headers=bearer_header(Role.ADMIN)
+    )
     resp = client.get("/api/v1/guruvani/random")
     assert resp.status_code == 200
     assert resp.json()["sort_order"] == 1
@@ -66,23 +81,23 @@ def test_random_is_registered_ahead_of_id_route(client):
 
 def test_upsert_translation_requires_admin(client):
     created = client.post(
-        "/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN)
+        "/api/v1/guruvani", json=_create_payload(), headers=bearer_header(Role.ADMIN)
     ).json()
 
     resp = client.put(
-        f"/api/v1/guruvani/{created['id']}/translations/en", json={"text": "a saying"}
+        f"/api/v1/guruvani/{created['id']}/translations/ml", json={"text": "a saying ml"}
     )
     assert resp.status_code == 401
 
 
 def test_upsert_translation_rejects_insufficient_role(client):
     created = client.post(
-        "/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN)
+        "/api/v1/guruvani", json=_create_payload(), headers=bearer_header(Role.ADMIN)
     ).json()
 
     resp = client.put(
-        f"/api/v1/guruvani/{created['id']}/translations/en",
-        json={"text": "a saying"},
+        f"/api/v1/guruvani/{created['id']}/translations/ml",
+        json={"text": "a saying ml"},
         headers=bearer_header(Role.USER),
     )
     assert resp.status_code == 403
@@ -90,7 +105,7 @@ def test_upsert_translation_rejects_insufficient_role(client):
 
 def test_upsert_translation_rejects_unsupported_language_code(client):
     created = client.post(
-        "/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN)
+        "/api/v1/guruvani", json=_create_payload(), headers=bearer_header(Role.ADMIN)
     ).json()
 
     resp = client.put(
@@ -103,16 +118,17 @@ def test_upsert_translation_rejects_unsupported_language_code(client):
 
 def test_admin_can_upsert_and_public_can_read_it_back(client):
     created = client.post(
-        "/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN)
+        "/api/v1/guruvani", json=_create_payload(), headers=bearer_header(Role.ADMIN)
     ).json()
 
     resp = client.put(
-        f"/api/v1/guruvani/{created['id']}/translations/en",
-        json={"text": "a saying"},
+        f"/api/v1/guruvani/{created['id']}/translations/ml",
+        json={"text": "a saying ml"},
         headers=bearer_header(Role.ADMIN),
     )
     assert resp.status_code == 200
-    assert resp.json()["translations"] == [{"language_code": "en", "text": "a saying"}]
+    codes = {t["language_code"] for t in resp.json()["translations"]}
+    assert codes == {"en", "ml"}
 
     fetched = client.get(f"/api/v1/guruvani/{created['id']}")
     assert fetched.status_code == 200
@@ -121,13 +137,8 @@ def test_admin_can_upsert_and_public_can_read_it_back(client):
 
 def test_upsert_accumulates_multiple_languages(client):
     created = client.post(
-        "/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN)
+        "/api/v1/guruvani", json=_create_payload(), headers=bearer_header(Role.ADMIN)
     ).json()
-    client.put(
-        f"/api/v1/guruvani/{created['id']}/translations/en",
-        json={"text": "a saying"},
-        headers=bearer_header(Role.ADMIN),
-    )
 
     resp = client.put(
         f"/api/v1/guruvani/{created['id']}/translations/ml",
@@ -150,7 +161,7 @@ def test_upsert_translation_missing_quote_returns_404(client):
 
 def test_delete_translation_requires_admin(client):
     created = client.post(
-        "/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN)
+        "/api/v1/guruvani", json=_create_payload(), headers=bearer_header(Role.ADMIN)
     ).json()
 
     resp = client.delete(f"/api/v1/guruvani/{created['id']}/translations/en")
@@ -159,11 +170,11 @@ def test_delete_translation_requires_admin(client):
 
 def test_delete_missing_translation_returns_404(client):
     created = client.post(
-        "/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN)
+        "/api/v1/guruvani", json=_create_payload(), headers=bearer_header(Role.ADMIN)
     ).json()
 
     resp = client.delete(
-        f"/api/v1/guruvani/{created['id']}/translations/en",
+        f"/api/v1/guruvani/{created['id']}/translations/ml",
         headers=bearer_header(Role.ADMIN),
     )
     assert resp.status_code == 404
@@ -171,13 +182,8 @@ def test_delete_missing_translation_returns_404(client):
 
 def test_admin_can_delete_one_translation(client):
     created = client.post(
-        "/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN)
+        "/api/v1/guruvani", json=_create_payload(), headers=bearer_header(Role.ADMIN)
     ).json()
-    client.put(
-        f"/api/v1/guruvani/{created['id']}/translations/en",
-        json={"text": "a saying"},
-        headers=bearer_header(Role.ADMIN),
-    )
     client.put(
         f"/api/v1/guruvani/{created['id']}/translations/ml",
         json={"text": "a saying ml"},
@@ -196,7 +202,7 @@ def test_admin_can_delete_one_translation(client):
 
 def test_admin_can_update_sort_order(client):
     created = client.post(
-        "/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN)
+        "/api/v1/guruvani", json=_create_payload(), headers=bearer_header(Role.ADMIN)
     ).json()
 
     updated = client.put(
@@ -219,7 +225,7 @@ def test_update_sort_order_missing_returns_404(client):
 
 def test_admin_can_delete(client):
     created = client.post(
-        "/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN)
+        "/api/v1/guruvani", json=_create_payload(), headers=bearer_header(Role.ADMIN)
     ).json()
 
     deleted = client.delete(
@@ -237,13 +243,8 @@ def test_delete_missing_returns_404(client):
 
 def test_list_filters_by_language_code(client):
     created = client.post(
-        "/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN)
+        "/api/v1/guruvani", json=_create_payload(), headers=bearer_header(Role.ADMIN)
     ).json()
-    client.put(
-        f"/api/v1/guruvani/{created['id']}/translations/en",
-        json={"text": "a saying"},
-        headers=bearer_header(Role.ADMIN),
-    )
     client.put(
         f"/api/v1/guruvani/{created['id']}/translations/ml",
         json={"text": "a saying ml"},
@@ -258,13 +259,8 @@ def test_list_filters_by_language_code(client):
 
 def test_get_filters_by_language_code(client):
     created = client.post(
-        "/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN)
+        "/api/v1/guruvani", json=_create_payload(), headers=bearer_header(Role.ADMIN)
     ).json()
-    client.put(
-        f"/api/v1/guruvani/{created['id']}/translations/en",
-        json={"text": "a saying"},
-        headers=bearer_header(Role.ADMIN),
-    )
     client.put(
         f"/api/v1/guruvani/{created['id']}/translations/ml",
         json={"text": "a saying ml"},
@@ -280,13 +276,8 @@ def test_get_filters_by_language_code(client):
 
 def test_random_filters_by_language_code(client):
     created = client.post(
-        "/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN)
+        "/api/v1/guruvani", json=_create_payload(), headers=bearer_header(Role.ADMIN)
     ).json()
-    client.put(
-        f"/api/v1/guruvani/{created['id']}/translations/en",
-        json={"text": "a saying"},
-        headers=bearer_header(Role.ADMIN),
-    )
     client.put(
         f"/api/v1/guruvani/{created['id']}/translations/ml",
         json={"text": "a saying ml"},
@@ -300,7 +291,7 @@ def test_random_filters_by_language_code(client):
 
 def test_get_rejects_unsupported_language_code_filter(client):
     created = client.post(
-        "/api/v1/guruvani", json={}, headers=bearer_header(Role.ADMIN)
+        "/api/v1/guruvani", json=_create_payload(), headers=bearer_header(Role.ADMIN)
     ).json()
 
     resp = client.get(

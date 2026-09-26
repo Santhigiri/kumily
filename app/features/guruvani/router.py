@@ -3,7 +3,7 @@
 * ``GET    /api/v1/guruvani``                                     — list every quote, ordered by sort_order; every translation, or only ``?language_code=`` when given (public)
 * ``GET    /api/v1/guruvani/random``                               — fetch one quote at random; every translation, or only ``?language_code=`` when given (public)
 * ``GET    /api/v1/guruvani/{id}``                                 — fetch one quote; every translation, or only ``?language_code=`` when given (public)
-* ``POST   /api/v1/guruvani``                                      — create a quote's parent row (no translations yet) (admin)
+* ``POST   /api/v1/guruvani``                                      — create a quote with its first translation (admin)
 * ``PUT    /api/v1/guruvani/{id}/translations/{language_code}``    — create or update one language's text for a quote (admin)
 * ``DELETE /api/v1/guruvani/{id}/translations/{language_code}``    — remove one language's text for a quote (admin)
 * ``PUT    /api/v1/guruvani/{id}/sort-order``                      — update a quote's display order (admin)
@@ -105,7 +105,7 @@ def get_guruvani(
 def create_guruvani(
     payload: GuruvaniCreate, service: GuruvaniServiceDep
 ) -> GuruvaniDetail:
-    return service.create(payload.sort_order)
+    return service.create(payload.sort_order, payload.language_code.value, payload.text)
 
 
 @router.put(
